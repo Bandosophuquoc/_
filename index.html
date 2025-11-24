@@ -1738,14 +1738,14 @@ function getCurrentUser() {
   return null;
 }
 
+// Tìm hàm updateUser trong code và thay thế bằng phiên bản mới này
 function updateUser(user) {
   console.log('💾 START updateUser:', user);
   
   // Ưu tiên Firebase
   if (currentUser && auth && auth.currentUser) {
     console.log('🔥 Using Firebase update');
-    saveUserData();
-    return true;
+    return saveUserData(); // Đảm bảo trả về promise
   }
   
   // Fallback localStorage
@@ -1753,9 +1753,9 @@ function updateUser(user) {
   
   // Cập nhật currentUser
   if (currentUser) {
-    currentUser.badges = user.badges;
-    currentUser.visitedSites = user.visitedSites;
-    currentUser.completedGames = user.completedGames;
+    currentUser.badges = user.badges || [];
+    currentUser.visitedSites = user.visitedSites || [];
+    currentUser.completedGames = user.completedGames || {};
     console.log('✅ Updated currentUser');
   }
   
@@ -1764,7 +1764,7 @@ function updateUser(user) {
   const userIndex = users.findIndex(u => u.id === user.id);
   
   if (userIndex !== -1) {
-    users[userIndex] = user;
+    users[userIndex] = {...users[userIndex], ...user};
     localStorage.setItem(STORAGE_USERS, JSON.stringify(users));
     console.log('✅ Updated localStorage users');
   } else {
@@ -1783,6 +1783,118 @@ function updateUser(user) {
   return true;
 }
 
+// Thêm hàm đảm bảo đồng bộ dữ liệu khi trao huy hiệu
+async function awardBadge(id, name, icon) {
+  console.log('🎖️ START awardBadge:', { id, name, icon });
+  
+  const user = getCurrentUser();
+  if (!user) {
+    console.log('❌ No user logged in');
+    alert('Vui lòng đăng nhập để nhận huy hiệu');
+    return false;
+  }
+  
+  // Đảm bảo badges array tồn tại
+  if (!user.badges) {
+    user.badges = [];
+    console.log('🆕 Initialized badges array');
+  }
+  
+  // Kiểm tra xem đã có huy hiệu này chưa
+  const existingBadge = user.badges.find(b => b.id === id);
+  if (existingBadge) {
+    console.log('⚠️ Badge already exists:', id);
+    return false;
+  }
+  
+  console.log('➕ Adding new badge:', { id, name, icon });
+  
+  // Thêm huy hiệu mới
+  user.badges.push({ id, name, icon });
+  console.log('📊 User badges after push:', user.badges);
+  
+  // Cập nhật dữ liệu và đợi hoàn thành
+  try {
+    const updateSuccess = await updateUser(user);
+    console.log('💾 Update user success:', updateSuccess);
+    
+    if (updateSuccess) {
+      console.log('✅ User data updated successfully');
+      
+      // Hiển thị popup
+      showBadgePopup(name, icon);
+      
+      // Cập nhật UI trang cá nhân ngay lập tức
+      setTimeout(() => {
+        console.log('🔄 Refreshing profile UI...');
+        refreshProfileAuthUI();
+      }, 1000);
+      
+      console.log(`✅ Badge awarded: ${name}`);
+      return true;
+    } else {
+      console.log('❌ Failed to update user data');
+      return false;
+    }
+  } catch (error) {
+    console.log('❌ Error updating user:', error);
+    return false;
+  }
+}
+
+// Cập nhật hàm saveUserData để đảm bảo trả về promise
+async function saveUserData() {
+  if (!currentUser || !auth.currentUser) return false;
+  
+  try {
+    await db.collection('users').doc(auth.currentUser.uid).set({
+      badges: currentUser.badges || [],
+      visitedSites: currentUser.visitedSites || [],
+      completedGames: currentUser.completedGames || {},
+      lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    console.log('✅ User data saved to Firestore');
+    return true;
+  } catch (error) {
+    console.log('⚠️ Cannot save user data to Firestore:', error);
+    return false;
+  }
+}
+
+// Thêm hàm đồng bộ dữ liệu khi load user
+async function loadUserData(uid) {
+  try {
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      currentUser.badges = userData.badges || [];
+      currentUser.visitedSites = userData.visitedSites || [];
+      currentUser.completedGames = userData.completedGames || {};
+      console.log('✅ User data loaded from Firestore');
+      
+      // Đồng bộ với localStorage để backup
+      const users = JSON.parse(localStorage.getItem(STORAGE_USERS) || '[]');
+      const userIndex = users.findIndex(u => u.id === uid);
+      if (userIndex !== -1) {
+        users[userIndex] = {...users[userIndex], ...currentUser};
+        localStorage.setItem(STORAGE_USERS, JSON.stringify(users));
+      }
+    }
+  } catch (error) {
+    console.log('⚠️ Cannot load user data from Firestore, using localStorage');
+    // Fallback to localStorage
+    const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || '{}');
+    if (session.userId === uid) {
+      const users = JSON.parse(localStorage.getItem(STORAGE_USERS) || '[]');
+      const user = users.find(u => u.id === uid);
+      if (user) {
+        currentUser.badges = user.badges || [];
+        currentUser.visitedSites = user.visitedSites || [];
+        currentUser.completedGames = user.completedGames || {};
+      }
+    }
+  }
+}
 /* ---------- PROFILE UI ---------- */
 
 function refreshProfileAuthUI(){
@@ -1872,58 +1984,6 @@ function renderProfileBadges() {
   `;
 }
 /* ---------- BADGES & GAME SYSTEM ---------- */
-function awardBadge(id, name, icon) {
-  console.log('🎖️ START awardBadge:', { id, name, icon });
-  
-  const user = getCurrentUser();
-  if (!user) {
-    console.log('❌ No user logged in');
-    alert('Vui lòng đăng nhập để nhận huy hiệu');
-    return false;
-  }
-  
-  // Đảm bảo badges array tồn tại
-  if (!user.badges) {
-    user.badges = [];
-    console.log('🆕 Initialized badges array');
-  }
-  
-  // Kiểm tra xem đã có huy hiệu này chưa
-  const existingBadge = user.badges.find(b => b.id === id);
-  if (existingBadge) {
-    console.log('⚠️ Badge already exists:', id);
-    return false;
-  }
-  
-  console.log('➕ Adding new badge:', { id, name, icon });
-  
-  // Thêm huy hiệu mới
-  user.badges.push({ id, name, icon });
-  console.log('📊 User badges after push:', user.badges);
-  
-  // Cập nhật dữ liệu
-  const updateSuccess = updateUser(user);
-  console.log('💾 Update user success:', updateSuccess);
-  
-  if (updateSuccess) {
-    console.log('✅ User data updated successfully');
-    
-    // Hiển thị popup
-    showBadgePopup(name, icon);
-    
-    // Cập nhật UI trang cá nhân ngay lập tức
-    setTimeout(() => {
-      console.log('🔄 Refreshing profile UI...');
-      refreshProfileAuthUI();
-    }, 1000);
-    
-    console.log(`✅ Badge awarded: ${name}`);
-    return true;
-  } else {
-    console.log('❌ Failed to update user data');
-    return false;
-  }
-}
 function markVisited(siteId) {
   const user = getCurrentUser();
   if (!user) return;
