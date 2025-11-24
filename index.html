@@ -1604,13 +1604,69 @@ async function loadUserData(uid) {
       currentUser.badges = userData.badges || [];
       currentUser.visitedSites = userData.visitedSites || [];
       currentUser.completedGames = userData.completedGames || {};
-      console.log('✅ User data loaded');
+      
+      // 🔥 THÊM DÒNG NÀY: Đồng bộ với localStorage
+      syncUserToLocalStorage(currentUser);
+      
+      console.log('✅ User data loaded from Firestore');
     }
   } catch (error) {
-    console.log('⚠️ Cannot load user data');
+    console.log('⚠️ Cannot load user data from Firestore, trying localStorage...');
+    // Fallback to localStorage
+    const localUser = loadUserFromLocalStorage(uid);
+    if (localUser) {
+      currentUser.badges = localUser.badges || [];
+      currentUser.visitedSites = localUser.visitedSites || [];
+      currentUser.completedGames = localUser.completedGames || {};
+    }
   }
 }
-
+// 🔥 THÊM 2 HÀM NÀY VÀO
+function syncUserToLocalStorage(user) {
+  console.log('💾 Syncing user to localStorage:', user.id);
+  
+  try {
+    const users = JSON.parse(localStorage.getItem(STORAGE_USERS) || '[]');
+    const userIndex = users.findIndex(u => u.id === user.id);
+    
+    if (userIndex !== -1) {
+      users[userIndex] = user;
+    } else {
+      users.push(user);
+    }
+    
+    localStorage.setItem(STORAGE_USERS, JSON.stringify(users));
+    console.log('✅ User synced to localStorage, total users:', users.length);
+    
+    // 🔥 THÊM DÒNG NÀY: Đồng bộ session đơn giản
+    localStorage.setItem(STORAGE_SESSION, JSON.stringify({
+      userId: user.id,
+      lastSync: new Date().toISOString()
+    }));
+    
+  } catch (error) {
+    console.log('❌ Error syncing to localStorage:', error);
+  }
+}
+// 🔥 SỬA LẠI HOÀN TOÀN - PHIÊN BẢN ĐƠN GIẢN
+function loadUserFromLocalStorage(uid) {
+  console.log('📱 Loading user from localStorage:', uid);
+  
+  try {
+    const users = JSON.parse(localStorage.getItem(STORAGE_USERS) || '[]');
+    const user = users.find(u => u.id === uid);
+    
+    if (user) {
+      console.log('✅ User loaded from localStorage');
+      return user;
+    }
+  } catch (error) {
+    console.log('❌ Error loading from localStorage:', error);
+  }
+  
+  console.log('❌ User not found in localStorage');
+  return null;
+}
 // Save user data lên Firestore
 async function saveUserData() {
   if (!currentUser || !auth.currentUser) return;
@@ -1721,23 +1777,28 @@ function showAuthError(msg){
 const STORAGE_USERS = 'pq_users';
 const STORAGE_SESSION = 'pq_session';
 
+// 🔥 SỬA HÀM getCurrentUser() - PHIÊN BẢN ĐƠN GIẢN
 function getCurrentUser() {
   // Ưu tiên Firebase user
   if (currentUser) return currentUser;
   
-  // Fallback localStorage
-  const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
-  if (session && new Date(session.expiresAt) > new Date()) {
-    const users = JSON.parse(localStorage.getItem(STORAGE_USERS) || '[]');
-    const user = users.find(u => u.id === session.userId);
-    if (user) {
-      console.log('📱 Using localStorage user');
-      return user;
+  // Fallback localStorage - ĐƠN GIẢN HÓA
+  try {
+    const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || 'null');
+    if (session && session.userId) {
+      const users = JSON.parse(localStorage.getItem(STORAGE_USERS) || '[]');
+      const user = users.find(u => u.id === session.userId);
+      if (user) {
+        console.log('📱 Using localStorage user');
+        return user;
+      }
     }
+  } catch (error) {
+    console.log('❌ Error in getCurrentUser:', error);
   }
+  
   return null;
 }
-
 function updateUser(user) {
   console.log('💾 START updateUser:', user);
   
