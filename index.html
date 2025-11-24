@@ -1782,8 +1782,6 @@ function updateUser(user) {
   console.log('💾 END updateUser: SUCCESS');
   return true;
 }
-
-// Thêm hàm đảm bảo đồng bộ dữ liệu khi trao huy hiệu
 async function awardBadge(id, name, icon) {
   console.log('🎖️ START awardBadge:', { id, name, icon });
   
@@ -1824,11 +1822,9 @@ async function awardBadge(id, name, icon) {
       // Hiển thị popup
       showBadgePopup(name, icon);
       
-      // Cập nhật UI trang cá nhân ngay lập tức
-      setTimeout(() => {
-        console.log('🔄 Refreshing profile UI...');
-        refreshProfileAuthUI();
-      }, 1000);
+      // QUAN TRỌNG: Cập nhật UI trang cá nhân ngay lập tức
+      console.log('🔄 Immediately refreshing profile UI...');
+      refreshProfileAuthUI();
       
       console.log(`✅ Badge awarded: ${name}`);
       return true;
@@ -1841,7 +1837,6 @@ async function awardBadge(id, name, icon) {
     return false;
   }
 }
-
 // Cập nhật hàm saveUserData để đảm bảo trả về promise
 async function saveUserData() {
   if (!currentUser || !auth.currentUser) return false;
@@ -1860,17 +1855,19 @@ async function saveUserData() {
     return false;
   }
 }
-
-// Thêm hàm đồng bộ dữ liệu khi load user
+// THAY THẾ hàm loadUserData hiện tại bằng phiên bản này
 async function loadUserData(uid) {
   try {
     const userDoc = await db.collection('users').doc(uid).get();
     if (userDoc.exists) {
       const userData = userDoc.data();
+      
+      // QUAN TRỌNG: Cập nhật currentUser với dữ liệu từ Firestore
       currentUser.badges = userData.badges || [];
       currentUser.visitedSites = userData.visitedSites || [];
       currentUser.completedGames = userData.completedGames || {};
-      console.log('✅ User data loaded from Firestore');
+      
+      console.log('✅ User data loaded from Firestore:', currentUser.badges);
       
       // Đồng bộ với localStorage để backup
       const users = JSON.parse(localStorage.getItem(STORAGE_USERS) || '[]');
@@ -1879,9 +1876,14 @@ async function loadUserData(uid) {
         users[userIndex] = {...users[userIndex], ...currentUser};
         localStorage.setItem(STORAGE_USERS, JSON.stringify(users));
       }
+      
+      // QUAN TRỌNG: Cập nhật UI ngay lập tức
+      refreshProfileAuthUI();
+    } else {
+      console.log('⚠️ No user data found in Firestore');
     }
   } catch (error) {
-    console.log('⚠️ Cannot load user data from Firestore, using localStorage');
+    console.log('⚠️ Cannot load user data from Firestore, using localStorage:', error);
     // Fallback to localStorage
     const session = JSON.parse(localStorage.getItem(STORAGE_SESSION) || '{}');
     if (session.userId === uid) {
@@ -1891,12 +1893,12 @@ async function loadUserData(uid) {
         currentUser.badges = user.badges || [];
         currentUser.visitedSites = user.visitedSites || [];
         currentUser.completedGames = user.completedGames || {};
+        refreshProfileAuthUI();
       }
     }
   }
 }
 /* ---------- PROFILE UI ---------- */
-
 function refreshProfileAuthUI(){
   const user = getCurrentUser();
   const profileInfo = document.getElementById('profile-info');
@@ -1913,7 +1915,8 @@ function refreshProfileAuthUI(){
     profileInfo.innerHTML = `Xin chào <strong>${user.name}</strong> — ${user.email}<br><small>${source}</small>`;
     profileInfo.className = 'alert alert-success';
     
-    // Gọi hàm render huy hiệu
+    // QUAN TRỌNG: Luôn gọi render huy hiệu khi có user
+    console.log('🔄 Rendering badges for user:', user.badges);
     renderUserBadges(user);
   } else {
     btnLogin.style.display = 'inline-block';
@@ -1923,7 +1926,6 @@ function refreshProfileAuthUI(){
     profileInfo.innerHTML = 'Bạn chưa đăng nhập. Vui lòng đăng nhập để lưu tiến trình.';
     profileInfo.className = 'alert alert-info';
     
-    // Hiển thị thông báo khi chưa đăng nhập
     renderProfileBadges();
   }
 }
@@ -3814,6 +3816,28 @@ function renderAnalytics() {
   document.getElementById('deviceChart').innerHTML = '<p class="text-muted">Chưa có dữ liệu</p>';
   document.getElementById('recentActivity').innerHTML = '<p class="text-muted">Chưa có hoạt động nào</p>';
 }
+/* ---------- DEBUG SYSTEM ---------- */
+// Thêm hàm này để debug
+function debugUserData() {
+  console.log('=== DEBUG USER DATA ===');
+  console.log('Current User:', currentUser);
+  console.log('Current User Badges:', currentUser ? currentUser.badges : 'No user');
+  console.log('LocalStorage Users:', JSON.parse(localStorage.getItem(STORAGE_USERS) || '[]'));
+  console.log('Firebase Auth:', auth.currentUser);
+  console.log('========================');
+}
+
+// Gọi debug khi vào trang profile
+document.querySelector('.menu-item[data-page="profile"]')?.addEventListener('click', () => {
+  setTimeout(debugUserData, 1000);
+});
+
+// Cũng có thể thêm debug khi load trang
+setTimeout(() => {
+  console.log('🔄 Page loaded - checking user data...');
+  debugUserData();
+}, 2000);
+
 </script>
 </body>
 </html>
